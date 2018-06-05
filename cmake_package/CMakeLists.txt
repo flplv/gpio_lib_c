@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.9)
-project(gpio_lib_c VERSION 1.2.3)
+project(gpio_lib_c VERSION 2.31.0)
 
 include_directories(
   include
@@ -14,6 +14,8 @@ set(CMAKE_CXX_STANDARD 11)
 add_compile_options(
     -Wall
     -fPIC
+    -D_GNU_SOURCE
+    -DTINKER_BOARD
 )
 
 if(${COVERAGE})
@@ -80,7 +82,6 @@ set(wiringPi_HEADER
   ../wiringPi/drcSerial.h
   ../wiringPi/wpiExtensions.h
 )
-
 
 set(devLib_SOURCE
   ../devLib/ds1302.c
