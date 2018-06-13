@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
 
 #define CONFIG_I2S_SHORT
 
@@ -29,6 +30,8 @@ static volatile unsigned *pmu;
 
 static void *cru_map;
 static volatile unsigned *cru;
+
+static pthread_spinlock_t write_spinlock;
 
 /* Format Convert*/
 int* asus_get_physToGpio(int rev)
@@ -292,6 +295,13 @@ int tinker_board_setup(int rev)
         cru = (volatile unsigned *)cru_map;
         ///////////////////////////////
         close(mem_fd); // No need to keep mem_fdcru open after mmap
+
+        if (pthread_spin_init(&write_spinlock, PTHREAD_PROCESS_SHARED) != 0)
+        {
+          printf("wiringPiSetup: Unable to init spinlock: %s\n", strerror (errno));
+          return -1;
+        }
+
         return 0;
 }
 
@@ -680,6 +690,8 @@ void asus_set_pin_mode(int pin, int mode)
         bank = gpioToBank(pin);
         bank_pin = gpioToBankPin(pin);
 
+        pthread_spin_lock(&write_spinlock);
+
         if(INPUT == mode)
         {
                 asus_set_pinmode_as_gpio(pin);
@@ -715,47 +727,60 @@ void asus_set_pin_mode(int pin, int mode)
                 else
                         printf("This pin cannot set as gpio clock\n");
         }
+
+        pthread_spin_unlock(&write_spinlock);
 }
 
 void asus_digitalWrite(int pin, int value)
 {
         int bank, bank_pin;
-        int op=0;
-        volatile unsigned* addr;
+//        int op=0;
+//        volatile unsigned* addr;
         if(!gpio_is_valid(pin))
                 return;
         bank = gpioToBank(pin);
         bank_pin = gpioToBankPin(pin);
 
-        addr=gpio0[bank]+GPIO_SWPORTA_DR_OFFSET/4;
+//        addr=gpio0[bank]+GPIO_SWPORTA_DR_OFFSET/4;
+
+        pthread_spin_lock(&write_spinlock);
+
         if(value > 0)
         {
-                //*(gpio0[bank]+GPIO_SWPORTA_DR_OFFSET/4) |= (1<<bank_pin);
-                op=(1<<bank_pin);
-                __asm__ volatile(
-                "mov r0,%0\n\t"
-                "mov r1,%1\n\t"
-                "orr r0,r1\n\t"
-                "str r0,[%0]\n\t"
-                :
-                :"r" (addr),"r" (op)
-                :"r0","r1"
-                );
+                *(gpio0[bank]+GPIO_SWPORTA_DR_OFFSET/4) |= (1<<bank_pin);
+//                op=(1<<bank_pin);
+//                __asm__ volatile(
+//                "dmb\n\t"
+//                "dsb\n\t"
+//                "isb\n\t"
+//                "mov r0,%0\n\t"
+//                "mov r1,%1\n\t"
+//                "orr r0,r1\n\t"
+//                "str r0,[%0]\n\t"
+//                :
+//                :"r" (addr),"r" (op)
+//                :"r0","r1"
+//                );
         }
         else
         {
-                //*(gpio0[bank]+GPIO_SWPORTA_DR_OFFSET/4) &= ~(1<<bank_pin);
-                op=~(1<<bank_pin);
-                __asm__ volatile( 
-                "mov r0,%0\n\t"
-                "mov r1,%1\n\t"
-                "and r0,r1\n\t"
-                "str r0,[%0]\n\t"
-                :
-                :"r" (addr),"r" (op)
-                :"r0","r1"
-                );
+                *(gpio0[bank]+GPIO_SWPORTA_DR_OFFSET/4) &= ~(1<<bank_pin);
+//                op=~(1<<bank_pin);
+//                __asm__ volatile(
+//                "dmb\n\t"
+//                "dsb\n\t"
+//                "isb\n\t"
+//                "mov r0,%0\n\t"
+//                "mov r1,%1\n\t"
+//                "and r0,r1\n\t"
+//                "str r0,[%0]\n\t"
+//                :
+//                :"r" (addr),"r" (op)
+//                :"r0","r1"
+//                );
         }
+
+        pthread_spin_unlock(&write_spinlock);
 }
 
 int asus_digitalRead(int pin)
